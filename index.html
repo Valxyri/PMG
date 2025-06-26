@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PMG Live Collaborative Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Firebase Libraries -->
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        .chart-container { position: relative; width: 100%; height: 350px; }
+        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; }
+        #loader { border: 5px solid #f3f3f3; border-top: 5px solid #00A0B0; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div id="loadingOverlay" class="fixed inset-0 bg-white bg-opacity-75 flex flex-col items-center justify-center z-50">
+        <div id="loader"></div>
+        <p id="loadingMessage" class="mt-4 text-slate-600 font-semibold">Connecting...</p>
+    </div>
+
+    <div id="appContainer" class="container mx-auto p-4 md:p-6 opacity-0 transition-opacity duration-500">
+        <header class="flex justify-between items-center mb-8 border-b border-slate-300 pb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-[#00A0B0]">PMG Documentation: Live Dashboard</h1>
+                <p class="text-slate-600 mt-1">A collaborative tool for real-time project tracking.</p>
+            </div>
+            <div id="authStatus" class="text-right">
+                <p class="text-sm text-slate-500">Status: <span id="connectionStatus" class="font-semibold text-red-500">Connecting...</span></p>
+                <p class="text-xs text-slate-400">User ID: <span id="userId"></span></p>
+            </div>
+        </header>
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <aside class="lg:col-span-1 space-y-6">
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-semibold text-lg mb-3 text-[#6A4A3C] border-b pb-2">Project Progress</h3>
+                    <div class="chart-container h-48"><canvas id="progressChart"></canvas></div>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-semibold text-lg mb-3 text-[#6A4A3C] border-b pb-2">High-Priority Tasks</h3>
+                    <ul class="space-y-2">
+                        <li class="bg-yellow-100 text-yellow-800 p-2 rounded"><strong>6.5</strong> (Sanctuary)</li>
+                        <li class="bg-yellow-100 text-yellow-800 p-2 rounded"><strong>3.5</strong> (Garden)</li>
+                        <li class="bg-yellow-100 text-yellow-800 p-2 rounded"><strong>3.4</strong> (Garden)</li>
+                        <li class="bg-yellow-100 text-yellow-800 p-2 rounded"><strong>3.3</strong> (Garden)</li>
+                    </ul>
+                </div>
+                <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-semibold text-lg mb-3 text-[#6A4A3C] border-b pb-2">Project Gantt Chart</h3>
+                    <div class="chart-container"><canvas id="ganttChart"></canvas></div>
+                </div>
+            </aside>
+            <section class="lg:col-span-2 bg-white p-4 rounded-lg shadow">
+                <h3 class="font-semibold text-lg mb-3 text-[#6A4A3C] border-b pb-2">Master Task Checklist</h3>
+                <div class="flex flex-col sm:flex-row gap-4 mb-4">
+                    <input type="text" id="searchInput" placeholder="Search..." class="w-full sm:w-1/2 p-2 border border-slate-300 rounded focus:ring-2 focus:ring-[#00A0B0] focus:outline-none">
+                    <div id="statusFilterButtons" class="flex items-center space-x-4">
+                        <button data-status="All" class="px-3 py-1 bg-slate-200 text-slate-700 rounded-full text-sm font-semibold">All</button>
+                        <button data-status="Not Started" class="px-3 py-1 bg-red-200 text-red-700 rounded-full text-sm font-semibold">Not Started</button>
+                        <button data-status="In Progress" class="px-3 py-1 bg-yellow-200 text-yellow-700 rounded-full text-sm font-semibold">In Progress</button>
+                        <button data-status="Complete" class="px-3 py-1 bg-green-200 text-green-700 rounded-full text-sm font-semibold">Complete</button>
+                    </div>
+                </div>
+                <div class="overflow-y-auto h-[80vh] border rounded-lg">
+                    <table class="w-full text-sm text-left text-slate-500">
+                        <thead class="text-xs text-slate-700 uppercase bg-slate-100 sticky top-0">
+                            <tr>
+                                <th scope="col" class="px-6 py-3">Section ID</th><th scope="col" class="px-6 py-3">Area</th>
+                                <th scope="col" class="px-6 py-3">Photo Type</th><th scope="col" class="px-6 py-3">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="taskList"></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const firebaseConfig = {
+                apiKey: "AIzaSyAccEfbZ0D2uPywJuV9WZ40zYGBNrceLGY",
+                authDomain: "pmg-documentation-project-2025.firebaseapp.com",
+                projectId: "pmg-documentation-project-2025",
+                storageBucket: "pmg-documentation-project-2025.firebasestorage.app",
+                messagingSenderId: "824708821209",
+                appId: "1:824708821209:web:26da2a333342e099994ec8",
+                measurementId: "G-B5BD7BJZR3"
+            };
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-pmg-dashboard';
+
+            firebase.initializeApp(firebaseConfig);
+            const auth = firebase.auth();
+            const db = firebase.firestore();
+            const tasksCollectionRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('pmg-tasks');
+
+            let allTasks = [];
+            let currentStatusFilter = 'All';
+            let progressChart = null;
+
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            const loadingMessage = document.getElementById('loadingMessage');
+            const appContainer = document.getElementById('appContainer');
+            const searchInput = document.getElementById('searchInput');
+            const statusFilterButtons = document.getElementById('statusFilterButtons');
+            const taskListBody = document.getElementById('taskList');
+            const connectionStatusEl = document.getElementById('connectionStatus');
+            const userIdEl = document.getElementById('userId');
+
+            const statusColors = {
+                'Not Started': 'bg-red-500', 'In Progress': 'bg-yellow-500', 'Complete': 'bg-green-500'
+            };
+            
+            async function seedInitialData() {
+                const initialTaskData = [
+                    { id: '1.1', area: 'Exterior Entrance', type: 'Standard'}, { id: '1.2', area: 'Exterior Entrance', type: 'Standard'},
+                    { id: '1.3', area: 'Exterior Entrance', type: 'Standard'}, { id: '1.4', area: 'Exterior Entrance', type: 'Standard'},
+                    { id: '1.5', area: 'Exterior Entrance', type: 'Standard'}, { id: '2.00', area: 'Inner Triangle', type: 'Standard' },
+                    { id: '2.1', area: 'Inner Triangle', type: 'Standard' }, { id: '2.2', area: 'Inner Triangle', type: 'Standard' },
+                    { id: '2.3', area: 'Inner Triangle', type: 'Standard' }, { id: '2.4', area: 'Inner Triangle', type: 'Standard' },
+                    { id: '2.5', area: 'Inner Triangle', type: 'Standard' }, { id: '2.6', area: 'Inner Triangle', type: 'Standard' },
+                    { id: '2.7', area: 'Inner Triangle', type: 'Standard' }, { id: '2.8', area: 'Inner Triangle', type: 'Standard' },
+                    { id: '2.9', area: 'Inner Triangle', type: 'Standard' }, { id: '3.00', area: 'Garden', type: 'Standard' },
+                    { id: '3.01', area: 'Garden', type: 'Standard' }, { id: '3.02', area: 'Garden', type: 'Standard' },
+                    { id: '3.03', area: 'Garden', type: 'Standard' }, { id: '3.1', area: 'Garden', type: 'Standard' },
+                    { id: '3.2', area: 'Garden', type: 'Standard' }, { id: '3.3', area: 'Garden', type: 'Rectified' },
+                    { id: '3.4', area: 'Garden', type: 'Rectified' }, { id: '3.5', area: 'Garden', type: 'Rectified' },
+                    { id: '3.6', area: 'Garden', type: 'Standard' }, { id: '3.7', area: 'Garden', type: 'Standard' },
+                    { id: '3.8', area: 'Garden', type: 'Standard' }, { id: '3.9', area: 'Garden', type: 'Standard' },
+                    { id: '3.11', area: 'Garden', type: 'Standard' }, { id: '3.12', area: 'Garden', type: 'Standard' },
+                    { id: '3.13', area: 'Garden', type: 'Standard' }, { id: '3.14', area: 'Garden', type: 'Standard' },
+                    { id: '3.15', area: 'Garden', type: 'Standard' }, { id: '3.16', area: 'Garden', type: 'Standard' },
+                    { id: '3.17', area: 'Garden', type: 'Standard' }, { id: '3.18', area: 'Garden', type: 'Standard' },
+                    { id: '3.19', area: 'Garden', type: 'Standard' }, { id: '4.1', area: 'Stairwell', type: 'Standard'},
+                    { id: '4.2', area: 'Stairwell', type: 'Standard'}, { id: '5.00', area: 'Main Walkway', type: 'Standard' },
+                    { id: '5.1', area: 'Main Walkway', type: 'Standard' }, { id: '5.2', area: 'Main Walkway', type: 'Standard' },
+                    { id: '5.3', area: 'Main Walkway', type: 'Standard' }, { id: '5.4', area: 'Main Walkway', type: 'Standard' },
+                    { id: '6.00', area: 'Sanctuary', type: 'Standard' }, { id: '6.1', area: 'Sanctuary', type: 'Standard' },
+                    { id: '6.2', area: 'Sanctuary', type: 'Standard' }, { id: '6.3', area: 'Sanctuary', type: 'Standard' },
+                    { id: '6.4', area: 'Sanctuary', type: 'Standard' }, { id: '6.5', area: 'Sanctuary', type: 'Rectified' },
+                    { id: '6.6', area: 'Sanctuary', type: 'Standard' }, { id: '7.00', area: 'Courtyard', type: 'Standard' },
+                    { id: '7.1', area: 'Courtyard', type: 'Standard' }, { id: '7.2', area: 'Courtyard', type: 'Standard' },
+                    { id: '7.3', area: 'Courtyard', type: 'Standard' }, { id: '7.4', area: 'Courtyard', type: 'Standard' },
+                    { id: '7.5', area: 'Courtyard', type: 'Standard' }, { id: '7.6', area: 'Courtyard', type: 'Standard' },
+                    { id: '7.7', area: 'Courtyard', type: 'Standard' }, { id: '7.8', area: 'Courtyard', type: 'Standard' },
+                    { id: '7.9', area: 'Courtyard', type: 'Standard' }, { id: '7.10', area: 'Courtyard', type: 'Standard' },
+                    { id: '15.00', area: 'Lower Pool', type: 'Standard' }, { id: '15.01', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.02', area: 'Lower Pool', type: 'Standard' }, { id: '15.1', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.2', area: 'Lower Pool', type: 'Standard' }, { id: '15.3', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.4', area: 'Lower Pool', type: 'Standard' }, { id: '15.5', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.7', area: 'Lower Pool', type: 'Standard' }, { id: '15.8', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.9', area: 'Lower Pool', type: 'Standard' }, { id: '15.11', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.12', area: 'Lower Pool', type: 'Standard' }, { id: '15.13', area: 'Lower Pool', type: 'Standard' },
+                    { id: '15.15', area: 'Lower Pool', type: 'Standard' }, { id: '15.16', area: 'Lower Pool', type: 'Standard' },
+                ];
+                const batch = db.batch();
+                initialTaskData.forEach(task => {
+                    const docRef = tasksCollectionRef.doc(task.id);
+                    batch.set(docRef, { ...task, status: 'Not Started' });
+                });
+                await batch.commit();
+            }
+            
+            async function initializeAppLogic(user) {
+                userIdEl.textContent = user.uid.substring(0, 8) + '...';
+                const querySnapshot = await tasksCollectionRef.get();
+                if (querySnapshot.empty) {
+                    loadingMessage.textContent = 'First-time setup: Seeding database...';
+                    await seedInitialData();
+                }
+                loadingMessage.textContent = 'Loading tasks...';
+                tasksCollectionRef.onSnapshot((snapshot) => {
+                    allTasks = snapshot.docs.map(doc => doc.data()).sort((a,b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
+                    filterAndRender();
+                    updateProgressChart();
+                    loadingOverlay.style.display = 'none';
+                    appContainer.classList.remove('opacity-0');
+                    connectionStatusEl.textContent = 'Connected';
+                    connectionStatusEl.className = 'font-semibold text-green-500';
+                }, (error) => {
+                    loadingMessage.textContent = 'Connection Error. Please refresh.';
+                });
+            }
+
+            async function toggleStatus(taskId) {
+                const task = allTasks.find(t => t.id === taskId);
+                if (!task) return;
+                const statuses = ['Not Started', 'In Progress', 'Complete', 'Not Started'];
+                const currentIndex = statuses.indexOf(task.status);
+                const newStatus = statuses[currentIndex + 1];
+                await tasksCollectionRef.doc(taskId).update({ status: newStatus });
+            }
+
+            function renderTable(data) {
+                taskListBody.innerHTML = '';
+                data.forEach(task => {
+                    const row = document.createElement('tr');
+                    row.className = 'bg-white border-b cursor-pointer transition-colors hover:bg-slate-100';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 font-medium text-slate-900">${task.id}</td>
+                        <td class="px-6 py-4">${task.area}</td>
+                        <td class="px-6 py-4"><span class="px-2 py-1 text-xs font-semibold rounded-full ${task.type === 'Rectified' ? 'bg-yellow-200 text-yellow-800' : 'bg-blue-200 text-blue-800'}">${task.type}</span></td>
+                        <td class="px-6 py-4 flex items-center"><span class="status-dot ${statusColors[task.status]} mr-2"></span><span>${task.status}</span></td>
+                    `;
+                    row.addEventListener('click', () => toggleStatus(task.id));
+                    taskListBody.appendChild(row);
+                });
+            }
+            
+            function filterAndRender() {
+                const searchTerm = searchInput.value.toLowerCase();
+                let filteredData = allTasks;
+                if (currentStatusFilter !== 'All') {
+                    filteredData = filteredData.filter(task => task.status === currentStatusFilter);
+                }
+                if (searchTerm) {
+                    filteredData = filteredData.filter(task => task.id.toLowerCase().includes(searchTerm) || task.area.toLowerCase().includes(searchTerm));
+                }
+                renderTable(filteredData);
+            }
+            
+            function updateProgressChart() {
+                const statuses = { 'Not Started': 0, 'In Progress': 0, 'Complete': 0 };
+                allTasks.forEach(task => { statuses[task.status]++; });
+                const data = [statuses['Complete'], statuses['In Progress'], statuses['Not Started']];
+                const total = allTasks.length > 0 ? allTasks.length : 78;
+                if(progressChart) {
+                    progressChart.data.datasets[0].data = data;
+                    progressChart.options.plugins.title.text = `Progress: ${statuses['Complete']} of ${total} Complete`;
+                    progressChart.update();
+                } else {
+                    progressChart = new Chart(document.getElementById('progressChart'), {
+                        type: 'doughnut', data: { labels: ['Complete', 'In Progress', 'Not Started'], datasets: [{ data: data, backgroundColor: ['#16a34a', '#f59e0b', '#ef4444'], borderColor: '#ffffff', borderWidth: 4 }] },
+                        options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false }, title: { display: true, text: `Progress: ${statuses['Complete']} of ${total} Complete`, position: 'top', font: { size: 16, weight: '600' }, color: '#6A4A3C' } } }
+                    });
+                }
+            }
+            
+            statusFilterButtons.addEventListener('click', (e) => {
+                if (e.target.tagName === 'BUTTON') {
+                    currentStatusFilter = e.target.dataset.status;
+                    document.querySelectorAll('#statusFilterButtons button').forEach(btn => btn.classList.remove('ring-2', 'ring-offset-2', 'ring-[#00A0B0]'));
+                    e.target.classList.add('ring-2', 'ring-offset-2', 'ring-[#00A0B0]');
+                    filterAndRender();
+                }
+            });
+            searchInput.addEventListener('input', filterAndRender);
+            
+            auth.onAuthStateChanged(user => {
+                if (user) { initializeAppLogic(user); }
+            });
+            
+            const mainAuth = async () => {
+                try {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                         await auth.signInWithCustomToken(__initial_auth_token);
+                    } else {
+                         await auth.signInAnonymously();
+                    }
+                } catch(e) {
+                    loadingMessage.textContent = 'Auth Error. Please refresh.';
+                }
+            };
+            mainAuth();
+
+            new Chart(document.getElementById('ganttChart'), {
+                type: 'bar', data: { labels: ['Final Review', 'Analysis Phase', 'Doc Photography', 'Rectified Photography'], datasets: [{ label: 'Project Timeline', data: [ { x: [new Date('2025-07-29'), new Date('2025-08-04')], y: 'Final Review' }, { x: [new Date('2025-07-22'), new Date('2025-07-28')], y: 'Analysis Phase' }, { x: [new Date('2025-07-08'), new Date('2025-07-28')], y: 'Doc Photography' }, { x: [new Date('2025-06-26'), new Date('2025-07-07')], y: 'Rectified Photography' } ], backgroundColor: ['#6A4A3C', '#EDC951', '#EB6841', '#CC333F'], barPercentage: 0.6 }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(context) { const start = new Date(context.raw.x[0]).toLocaleDateString(); const end = new Date(context.raw.x[1]).toLocaleDateString(); return `${context.dataset.label}: ${start} - ${end}`; } } } }, scales: { x: { type: 'time', time: { unit: 'week' }, min: '2025-06-23', max: '2025-08-05', ticks: { color: '#6A4A3C' }, grid: { color: '#e0e0e0' } }, y: { ticks: { color: '#6A4A3C' }, grid: { display: false } } } }
+            });
+        });
+    </script>
+</body>
+</html>
